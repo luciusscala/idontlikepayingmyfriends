@@ -7,6 +7,8 @@ from enum import Enum
 
 import stripe
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -236,6 +238,32 @@ async def get_trip_status(trip_id: str):
 async def root():
     """Health check endpoint"""
     return {"message": "Trip Commitment System API", "status": "running"}
+
+@app.get("/test")
+async def test_page():
+    """Serve the test page"""
+    return FileResponse("test_page.html")
+
+@app.get("/config")
+async def get_config():
+    """Get frontend configuration including Stripe keys"""
+    return {
+        "stripe_publishable_key": os.getenv("STRIPE_PUBLISHABLE_KEY", "pk_test_mock_key"),
+        "api_base": "http://localhost:8000"
+    }
+
+@app.get("/trips", response_model=List[CreateTripResponse])
+async def list_trips():
+    """List all trips"""
+    return [
+        CreateTripResponse(
+            trip_id=trip.trip_id,
+            threshold_amount=trip.threshold_amount,
+            total_committed=trip.total_committed,
+            created_at=trip.created_at
+        )
+        for trip in trips_db
+    ]
 
 if __name__ == "__main__":
     import uvicorn

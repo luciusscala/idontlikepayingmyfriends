@@ -43,11 +43,17 @@ The API will be available at `http://localhost:8000`
 
 ### 4. Test the API
 
+#### Option A: Automated Test Script
 Run the test script to see the system in action:
 
 ```bash
 python test_api.py
 ```
+
+#### Option B: Interactive Web Interface
+1. Start the API server: `python run.py`
+2. Open `test_page.html` in your browser
+3. Create trips and test the commitment flow
 
 ## API Endpoints
 

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trip Commitment System - Test</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .section { background: #f8f9fa; padding: 20px; margin: 10px 0; border-radius: 5px; }
+        input, select, button { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 3px; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 3px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        #card-element { padding: 10px; border: 1px solid #ddd; border-radius: 3px; background: white; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>🏖️ Trip Commitment System</h1>
+    
+    <!-- Create Trip -->
+    <div class="section">
+        <h3>1. Create Trip</h3>
+        <input type="number" id="threshold-amount" placeholder="Threshold amount ($)" min="1">
+        <button onclick="createTrip()">Create Trip</button>
+    </div>
+
+    <!-- Select Trip -->
+    <div class="section">
+        <h3>2. Select Trip</h3>
+        <select id="trip-select">
+            <option value="">Choose a trip...</option>
+        </select>
+        <button onclick="loadTrips()">Refresh</button>
+    </div>
+
+    <!-- Trip Info -->
+    <div id="trip-details" class="section hidden">
+        <h3>3. Trip Details</h3>
+        <div id="trip-info"></div>
+    </div>
+
+    <!-- Commit to Trip -->
+    <div id="commitment-form" class="section hidden">
+        <h3>4. Commit to Trip</h3>
+        <form id="payment-form">
+            <input type="text" id="traveler-name" placeholder="Your name" required>
+            <input type="number" id="commitment-amount" min="1" step="0.01" placeholder="Amount ($)" required>
+            <div id="card-element"></div>
+            <div id="card-errors"></div>
+            <button type="submit" id="submit-button">Commit to Trip</button>
+        </form>
+    </div>
+
+    <!-- Status -->
+    <div id="status-messages"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        const STRIPE_PUBLISHABLE_KEY = 'pk_test_51234567890abcdef'; // Replace with your actual key
+        
+        const stripe = Stripe(STRIPE_PUBLISHABLE_KEY);
+        const elements = stripe.elements();
+        let cardElement;
+        let currentTripId = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            cardElement = elements.create('card');
+            cardElement.mount('#card-element');
+            cardElement.on('change', function(event) {
+                document.getElementById('card-errors').textContent = event.error ? event.error.message : '';
+            });
+            loadTrips();
+        });
+
+        async function createTrip() {
+            const amount = document.getElementById('threshold-amount').value;
+            if (!amount) return showStatus('error', 'Enter threshold amount');
+            
+            try {
+                const response = await fetch(`${API_BASE}/trips`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({threshold_amount: Math.round(parseFloat(amount) * 100)})
+                });
+                
+                if (response.ok) {
+                    const trip = await response.json();
+                    showStatus('success', `Trip created: ${trip.trip_id.substring(0, 8)}...`);
+                    document.getElementById('threshold-amount').value = '';
+                    loadTrips();
+                } else {
+                    const error = await response.json();
+                    showStatus('error', 'Failed: ' + error.detail);
+                }
+            } catch (error) {
+                showStatus('error', 'Error: ' + error.message);
+            }
+        }
+
+        async function loadTrips() {
+            try {
+                const response = await fetch(`${API_BASE}/trips`);
+                if (response.ok) {
+                    const trips = await response.json();
+                    const select = document.getElementById('trip-select');
+                    select.innerHTML = '<option value="">Choose a trip...</option>';
+                    trips.forEach(trip => {
+                        const option = document.createElement('option');
+                        option.value = trip.trip_id;
+                        option.textContent = `$${(trip.threshold_amount / 100).toFixed(2)} threshold`;
+                        select.appendChild(option);
+                    });
+                    showStatus('info', `${trips.length} trips loaded`);
+                } else {
+                    showStatus('error', 'Failed to load trips');
+                }
+            } catch (error) {
+                showStatus('error', 'Error: ' + error.message);
+            }
+        }
+
+        document.getElementById('trip-select').addEventListener('change', function() {
+            const tripId = this.value;
+            if (tripId) {
+                selectTrip(tripId);
+            } else {
+                document.getElementById('trip-details').classList.add('hidden');
+                document.getElementById('commitment-form').classList.add('hidden');
+            }
+        });
+
+        async function selectTrip(tripId) {
+            currentTripId = tripId;
+            try {
+                const response = await fetch(`${API_BASE}/trips/${tripId}/status`);
+                if (response.ok) {
+                    const trip = await response.json();
+                    document.getElementById('trip-info').innerHTML = `
+                        <p><strong>Threshold:</strong> $${(trip.threshold_amount / 100).toFixed(2)}</p>
+                        <p><strong>Committed:</strong> $${(trip.total_committed / 100).toFixed(2)}</p>
+                        <p><strong>Status:</strong> ${trip.threshold_met ? '✅ Threshold Met' : '⏳ Pending'}</p>
+                        <p><strong>Travelers:</strong> ${trip.travelers.length}</p>
+                    `;
+                    document.getElementById('trip-details').classList.remove('hidden');
+                    document.getElementById('commitment-form').classList.remove('hidden');
+                } else {
+                    showStatus('error', 'Failed to load trip');
+                }
+            } catch (error) {
+                showStatus('error', 'Error: ' + error.message);
+            }
+        }
+
+        document.getElementById('payment-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            
+            const button = document.getElementById('submit-button');
+            button.disabled = true;
+            button.textContent = 'Processing...';
+            
+            try {
+                const {error, paymentMethod} = await stripe.createPaymentMethod({
+                    type: 'card',
+                    card: cardElement,
+                });
+                
+                if (error) throw new Error(error.message);
+                
+                const response = await fetch(`${API_BASE}/trips/${currentTripId}/commit`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        traveler_name: document.getElementById('traveler-name').value,
+                        committed_amount: Math.round(parseFloat(document.getElementById('commitment-amount').value) * 100),
+                        payment_method_id: paymentMethod.id
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail);
+                }
+                
+                const result = await response.json();
+                showStatus('success', result.status === 'captured' ? 
+                    `🎉 Payment captured! $${(result.committed_amount / 100).toFixed(2)}` :
+                    `✅ Committed! $${(result.committed_amount / 100).toFixed(2)} (pending threshold)`);
+                
+                document.getElementById('payment-form').reset();
+                cardElement.clear();
+                selectTrip(currentTripId);
+                
+            } catch (error) {
+                showStatus('error', 'Error: ' + error.message);
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Commit to Trip';
+            }
+        });
+
+        function showStatus(type, message) {
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.textContent = message;
+            document.getElementById('status-messages').appendChild(div);
+            setTimeout(() => div.remove(), 5000);
+        }
+    </script>
+</body>
+</html>
